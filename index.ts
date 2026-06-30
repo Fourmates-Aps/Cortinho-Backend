@@ -1,6 +1,9 @@
 import express, { Request, Response } from "express";
 import dotenv from "dotenv";
 import { verifyClerkToken } from "./middleware/clerkAuth.js";
+import { db } from "./db.js";
+import { users, cards } from "./drizzle/schema.js";
+import { eq } from "drizzle-orm";
 
 dotenv.config();
 
@@ -19,6 +22,40 @@ app.use("/api/protected", verifyClerkToken);
 
 app.get("/api/protected/user", (req: Request, res: Response) => {
   res.json({ userId: req.userId, message: "This is a protected endpoint" });
+});
+
+// Get user profile (Clerk ID sync)
+app.get("/api/protected/profile", async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    const user = await db.query.users.findFirst({
+      where: eq(users.clerkId, userId),
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    res.json(user);
+  } catch (error) {
+    console.error("Profile fetch error:", error);
+    res.status(500).json({ error: "Failed to fetch profile" });
+  }
+});
+
+// Get user's cards
+app.get("/api/protected/cards", async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    const userCards = await db.query.cards.findMany({
+      where: eq(cards.clerkId, userId),
+    });
+
+    res.json({ cards: userCards, count: userCards.length });
+  } catch (error) {
+    console.error("Cards fetch error:", error);
+    res.status(500).json({ error: "Failed to fetch cards" });
+  }
 });
 
 app.listen(PORT, () => {
