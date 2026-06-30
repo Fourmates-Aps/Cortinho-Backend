@@ -6,7 +6,7 @@ dotenv.config();
 export default {
   schema: "./drizzle/schema.ts",
   out: "./drizzle/migrations",
-  driver: "pg",
+  driver: "postgres",
   dbCredentials: {
     connectionString: process.env.DATABASE_URL!,
   },
