@@ -1,6 +1,6 @@
 import express, { Request, Response } from "express";
 import dotenv from "dotenv";
-import { verifyClerkToken } from "./middleware/clerkAuth";
+import { verifyClerkToken } from "./middleware/clerkAuth.js";
 
 dotenv.config();
 
