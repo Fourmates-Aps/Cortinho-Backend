@@ -8,6 +8,7 @@ import statsRouter        from "./stats.js";
 import sealedRouter       from "./sealed.js";
 import scanRouter         from "./scan.js";
 import importRouter       from "./import.js";
+import uploadRouter       from "./upload.js";
 
 const v1 = Router();
 
@@ -27,5 +28,6 @@ v1.use("/stats",        statsRouter);
 v1.use("/sealed",       sealedRouter);
 v1.use("/scan",         scanRouter);
 v1.use("/import",       importRouter);
+v1.use("/upload",       uploadRouter);
 
 export default v1;

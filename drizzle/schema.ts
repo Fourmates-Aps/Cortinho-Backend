@@ -12,6 +12,7 @@ import {
   boolean,
   date,
   timestamp,
+  uuid,
   index,
   uniqueIndex,
   jsonb,

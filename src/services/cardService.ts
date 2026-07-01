@@ -1,7 +1,3 @@
-// Business logic layer — no HTTP concerns here.
-// All handlers import from this file, never from db.ts directly.
-// This makes the service independently testable.
-
 import { db } from "../../db.js";
 import { cards, priceHistory } from "../../drizzle/schema.js";
 import { eq, and, isNull, desc, ilike, or, SQL, count } from "drizzle-orm";

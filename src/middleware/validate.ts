@@ -19,7 +19,10 @@ export function validate<T extends ZodSchema>(schema: T, target: Target = "body"
         result.error.flatten().fieldErrors
       );
     }
-    (req as any)[target] = result.data;
+    // Only assign back if not query (query is read-only in Express)
+    if (target !== "query") {
+      (req as any)[target] = result.data;
+    }
     next();
   };
 }

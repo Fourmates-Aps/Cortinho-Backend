@@ -20,8 +20,22 @@ router.post(
       return sendError(res, 503, ErrorCode.INTERNAL, "AI scan not configured on this server", req.requestId);
     }
 
-    const result = await scanCard(req.body);
-    sendSuccess(res, result, 200, req.requestId);
+    try {
+      const result = await scanCard(req.body);
+      sendSuccess(res, result, 200, req.requestId);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Gemini errors → 503 (service unavailable)
+      if (msg.includes("AI service unavailable") || msg.includes("GoogleGenerativeAI")) {
+        return sendError(res, 503, ErrorCode.INTERNAL, msg, req.requestId);
+      }
+      // Validation errors → 400
+      if (msg.includes("card name") || msg.includes("unclear")) {
+        return sendError(res, 400, ErrorCode.BAD_REQUEST, msg, req.requestId);
+      }
+      // Unknown → rethrow for global handler
+      throw err;
+    }
   })
 );
 

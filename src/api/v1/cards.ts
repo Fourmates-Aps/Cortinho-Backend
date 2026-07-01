@@ -15,9 +15,13 @@ const router = Router();
 // GET /v1/cards
 router.get(
   "/",
-  validate(listCardsSchema, "query"),
   asyncHandler(async (req, res) => {
-    const result = await listCards(req.dbUserId!, req.query as any);
+    // Validate and parse query params (can't use validate middleware for query since req.query is read-only)
+    const parsed = listCardsSchema.safeParse(req.query);
+    if (!parsed.success) {
+      return sendError(res, 400, ErrorCode.VALIDATION_ERROR, "Invalid query parameters", req.requestId, parsed.error.flatten().fieldErrors);
+    }
+    const result = await listCards(req.dbUserId!, parsed.data);
     sendSuccess(res, result, 200, req.requestId);
   })
 );
