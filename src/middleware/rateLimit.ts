@@ -1,0 +1,51 @@
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import { env } from "../config/env.js";
+import { ErrorCode } from "../types/api.js";
+
+// ── Shared error formatter ────────────────────────────────────
+const handler = (req: any, res: any) => {
+  res.status(429).json({
+    ok:        false,
+    error: {
+      code:    ErrorCode.RATE_LIMITED,
+      message: "Too many requests. Please slow down.",
+    },
+    requestId: req.requestId,
+    ts:        new Date().toISOString(),
+  });
+};
+
+// ── General API limiter ───────────────────────────────────────
+// 120 req / 1 min per IP — enough for normal browsing
+export const apiLimiter = rateLimit({
+  windowMs:         env.RATE_LIMIT_WINDOW_MS,
+  max:              env.RATE_LIMIT_MAX,
+  standardHeaders:  "draft-7",
+  legacyHeaders:    false,
+  keyGenerator:     (req) => req.userId || ipKeyGenerator(req),
+  handler,
+  skip:             (req) => env.NODE_ENV === "test",
+});
+
+// ── AI scan limiter ───────────────────────────────────────────
+// Each scan calls Gemini — expensive. 10 req / 1 min per user.
+export const aiLimiter = rateLimit({
+  windowMs:         env.RATE_LIMIT_WINDOW_MS,
+  max:              env.AI_RATE_LIMIT_MAX,
+  standardHeaders:  "draft-7",
+  legacyHeaders:    false,
+  keyGenerator:     (req) => req.userId || ipKeyGenerator(req),
+  handler,
+  skip:             (req) => env.NODE_ENV === "test",
+});
+
+// ── Auth limiter ──────────────────────────────────────────────
+// Stricter limit on auth endpoints to slow brute-force attempts
+export const authLimiter = rateLimit({
+  windowMs:         15 * 60 * 1000,   // 15 minutes
+  max:              20,
+  standardHeaders:  "draft-7",
+  legacyHeaders:    false,
+  keyGenerator:     ipKeyGenerator,
+  handler,
+});
