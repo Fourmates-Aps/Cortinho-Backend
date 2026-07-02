@@ -20,6 +20,9 @@ router.post(
   validate(presignedUrlSchema),
   asyncHandler(async (req, res) => {
     try {
+      if (!req.dbUserId) {
+        return sendError(res, 401, ErrorCode.UNAUTHORIZED, "User not authenticated", req.requestId);
+      }
       const { filename, contentType } = req.body;
       const result = await getPresignedUploadUrl(req.dbUserId, filename, contentType);
       sendSuccess(res, result, 200, req.requestId);

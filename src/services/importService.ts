@@ -1,7 +1,3 @@
-// CSV bulk import service.
-// Client (PapaParse) sends pre-parsed rows as JSON array.
-// We validate + insert in a single DB transaction with per-row error tracking.
-
 import { db } from "../../db.js";
 import { cards, priceHistory } from "../../drizzle/schema.js";
 import { z } from "zod";
@@ -30,7 +26,7 @@ const rowSchema = z.object({
 });
 
 export const importBodySchema = z.object({
-  rows: z.array(z.record(z.unknown())).min(1).max(500),
+  rows: z.array(z.record(z.string(), z.unknown())).min(1).max(500),
 });
 
 export interface ImportResult {

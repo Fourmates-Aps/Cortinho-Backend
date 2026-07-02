@@ -22,7 +22,7 @@ export const apiLimiter = rateLimit({
   max:              env.RATE_LIMIT_MAX,
   standardHeaders:  "draft-7",
   legacyHeaders:    false,
-  keyGenerator:     (req) => req.userId || ipKeyGenerator(req),
+  keyGenerator:     (req) => req.userId || ipKeyGenerator(req.ip || '0.0.0.0'),
   handler,
   skip:             (req) => env.NODE_ENV === "test",
 });
@@ -34,7 +34,7 @@ export const aiLimiter = rateLimit({
   max:              env.AI_RATE_LIMIT_MAX,
   standardHeaders:  "draft-7",
   legacyHeaders:    false,
-  keyGenerator:     (req) => req.userId || ipKeyGenerator(req),
+  keyGenerator:     (req) => req.userId || ipKeyGenerator(req.ip || '0.0.0.0'),
   handler,
   skip:             (req) => env.NODE_ENV === "test",
 });
@@ -46,6 +46,6 @@ export const authLimiter = rateLimit({
   max:              20,
   standardHeaders:  "draft-7",
   legacyHeaders:    false,
-  keyGenerator:     ipKeyGenerator,
+  keyGenerator:     (req) => ipKeyGenerator(req.ip || '0.0.0.0'),
   handler,
 });

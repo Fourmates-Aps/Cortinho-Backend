@@ -46,9 +46,15 @@ app.get("/api/protected/profile", async (req: Request, res: Response) => {
 // Get user's cards
 app.get("/api/protected/cards", async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).userId;
+    const clerkId = (req as any).userId;
+    const user = await db.query.users.findFirst({
+      where: eq(users.clerkId, clerkId),
+    });
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
     const userCards = await db.query.cards.findMany({
-      where: eq(cards.clerkId, userId),
+      where: eq(cards.userId, user.id),
     });
 
     res.json({ cards: userCards, count: userCards.length });
