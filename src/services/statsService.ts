@@ -67,20 +67,26 @@ export async function getPortfolioTimeline(userId: number, days = 90) {
   return rows.map((r) => ({ date: r.date, value: Number(r.value) }));
 }
 
-export async function getRecentCards(userId: number, limit = 6) {
+export async function getRecentCards(userId: number, limit = 8) {
   return db.query.cards.findMany({
     where:   and(eq(cards.userId, userId), isNull(cards.deletedAt), eq(cards.status, "collection")),
     orderBy: desc(cards.createdAt),
     limit,
-    columns: { id: true, name: true, setName: true, category: true, currentValue: true, imageUrl: true, isRookie: true, isAutographed: true, isGraded: true, gradeValue: true },
+    columns: {
+      id: true, name: true, setName: true, category: true,
+      currentValue: true, purchasePrice: true,
+      imageUrl: true, isRookie: true, isAutographed: true,
+      isGraded: true, gradeValue: true, gradeCompanyId: true,
+      createdAt: true,
+    },
   });
 }
 
 export async function getDashboardStats(userId: number) {
   const [summary, timeline, recent] = await Promise.all([
     getCollectionSummary(userId),
-    getPortfolioTimeline(userId, 90),
-    getRecentCards(userId, 6),
+    getPortfolioTimeline(userId, 365), // always fetch full year; client slices
+    getRecentCards(userId, 8),
   ]);
 
   return { summary, timeline, recentCards: recent };
