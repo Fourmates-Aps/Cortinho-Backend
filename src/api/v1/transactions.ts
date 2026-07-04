@@ -12,8 +12,12 @@ import {
 const router = Router();
 
 // GET /v1/transactions
-router.get("/", validate(listTransactionsSchema, "query"), asyncHandler(async (req, res) => {
-  const result = await listTransactions(req.dbUserId!, req.query as any);
+router.get("/", asyncHandler(async (req, res) => {
+  const parsed = listTransactionsSchema.safeParse(req.query);
+  if (!parsed.success) {
+    return sendError(res, 400, ErrorCode.VALIDATION_ERROR, "Invalid query params", req.requestId);
+  }
+  const result = await listTransactions(req.dbUserId!, parsed.data);
   sendSuccess(res, result, 200, req.requestId);
 }));
 
