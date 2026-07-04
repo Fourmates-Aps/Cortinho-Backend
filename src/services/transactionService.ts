@@ -1,6 +1,6 @@
 import { db } from "../../db.js";
 import { transactions, platforms } from "../../drizzle/schema.js";
-import { eq, and, gte, lte, desc, count, SQL, inArray } from "drizzle-orm";
+import { eq, and, gte, lte, desc, count, SQL, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 export const createTransactionSchema = z.object({
@@ -87,6 +87,106 @@ export async function deleteTransaction(userId: number, txId: number): Promise<b
     .where(and(eq(transactions.id, txId), eq(transactions.userId, userId)))
     .returning({ id: transactions.id });
   return !!r;
+}
+
+export interface ExportRow {
+  cardName:    string;
+  set:         string;
+  sellDate:    string;
+  sellPrice:   number;
+  buyDate:     string;
+  buyPrice:    number;
+  daysHeld:    number | null;
+  gainLoss:    number;
+}
+
+export async function exportTransactionsCsv(userId: number, year: number): Promise<string> {
+  const start = `${year}-01-01`;
+  const end   = `${year}-12-31`;
+
+  // Fetch all sell transactions in the year + all buy transactions (any year, for matching)
+  const allTx = await db.query.transactions.findMany({
+    where: eq(transactions.userId, userId),
+    orderBy: [desc(transactions.transactionDate)],
+    with: { card: { columns: { id: true, name: true, setName: true } } },
+  });
+
+  const sells = allTx
+    .filter((t) => t.type === "sell" && t.transactionDate >= start && t.transactionDate <= end)
+    .sort((a, b) => a.transactionDate.localeCompare(b.transactionDate));
+
+  const buys = allTx
+    .filter((t) => t.type === "buy")
+    .sort((a, b) => a.transactionDate.localeCompare(b.transactionDate));
+
+  // FIFO matching: for each sell, consume earliest unmatched buy for same cardId
+  const usedBuyIds = new Set<number>();
+  const rows: ExportRow[] = [];
+
+  for (const sell of sells) {
+    const matchedBuy = sell.cardId
+      ? buys.find((b) => b.cardId === sell.cardId && !usedBuyIds.has(b.id))
+      : null;
+
+    if (matchedBuy) usedBuyIds.add(matchedBuy.id);
+
+    const sellPrice = Number(sell.price);
+    const buyPrice  = matchedBuy ? Number(matchedBuy.price) : 0;
+    const daysHeld  = matchedBuy
+      ? Math.round((new Date(sell.transactionDate).getTime() - new Date(matchedBuy.transactionDate).getTime()) / 86_400_000)
+      : null;
+
+    rows.push({
+      cardName:  sell.card?.name ?? sell.platformCustom ?? "Unknown",
+      set:       sell.card?.setName ?? "",
+      sellDate:  sell.transactionDate,
+      sellPrice,
+      buyDate:   matchedBuy?.transactionDate ?? "",
+      buyPrice,
+      daysHeld,
+      gainLoss:  +(sellPrice - buyPrice).toFixed(2),
+    });
+  }
+
+  // CSV lines
+  // Prefix dangerous leading chars to prevent CSV formula injection (Excel/Sheets)
+  const esc = (v: string | number) => {
+    let s = String(v);
+    if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+    return `"${s.replace(/"/g, '""')}"`;
+  };
+
+  const header = ["Card", "Set", "Date Sold", "Sale Price ($)", "Date Bought", "Cost Basis ($)", "Days Held", "Gain / Loss ($)"].join(",");
+
+  const dataRows = rows.map((r) =>
+    [
+      esc(r.cardName),
+      esc(r.set),
+      esc(r.sellDate),
+      r.sellPrice.toFixed(2),
+      esc(r.buyDate || "N/A"),
+      r.buyPrice > 0 ? r.buyPrice.toFixed(2) : "N/A",
+      r.daysHeld !== null ? r.daysHeld : "N/A",
+      (r.gainLoss >= 0 ? "+" : "") + r.gainLoss.toFixed(2),
+    ].join(",")
+  );
+
+  const totalEarned    = rows.reduce((s, r) => s + r.sellPrice, 0);
+  const totalCost      = rows.reduce((s, r) => s + r.buyPrice,  0);
+  const totalGain      = rows.reduce((s, r) => s + r.gainLoss,  0);
+
+  const summary = [
+    "",
+    `"Tax Year",${year}`,
+    `"Generated",${new Date().toISOString().slice(0, 10)}`,
+    "",
+    `"Total Sales",${totalEarned.toFixed(2)}`,
+    `"Total Cost Basis",${totalCost.toFixed(2)}`,
+    `"Net Capital Gain / Loss",${(totalGain >= 0 ? "+" : "") + totalGain.toFixed(2)}`,
+    `"Transactions Included",${rows.length}`,
+  ];
+
+  return [header, ...dataRows, ...summary].join("\r\n");
 }
 
 export async function getTransactionSummary(userId: number) {

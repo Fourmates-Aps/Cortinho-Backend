@@ -70,6 +70,19 @@ router.delete(
   })
 );
 
+// PATCH /v1/cards/:id/visibility
+const visibilitySchema = z.object({ isPublic: z.boolean() });
+router.patch(
+  "/:id/visibility",
+  validate(idParamSchema, "params"),
+  validate(visibilitySchema),
+  asyncHandler(async (req, res) => {
+    const card = await updateCard(req.dbUserId!, (req.params as any).id, { isPublic: req.body.isPublic });
+    if (!card) return sendError(res, 404, ErrorCode.NOT_FOUND, "Card not found", req.requestId);
+    sendSuccess(res, { id: card.id, isPublic: card.isPublic }, 200, req.requestId);
+  })
+);
+
 // GET /v1/cards/:id/price-history
 router.get(
   "/:id/price-history",

@@ -5,7 +5,7 @@ import { sendSuccess, sendError } from "../../utils/response.js";
 import { ErrorCode } from "../../types/api.js";
 import {
   listTransactions, getTransaction, createTransaction,
-  updateTransaction, deleteTransaction, getTransactionSummary,
+  updateTransaction, deleteTransaction, getTransactionSummary, exportTransactionsCsv,
   createTransactionSchema, updateTransactionSchema, listTransactionsSchema,
 } from "../../services/transactionService.js";
 
@@ -25,6 +25,18 @@ router.get("/", asyncHandler(async (req, res) => {
 router.get("/summary", asyncHandler(async (req, res) => {
   const summary = await getTransactionSummary(req.dbUserId!);
   sendSuccess(res, summary, 200, req.requestId);
+}));
+
+// GET /v1/transactions/export?year=2026
+router.get("/export", asyncHandler(async (req, res) => {
+  const year = parseInt(req.query.year as string) || new Date().getFullYear();
+  if (year < 2000 || year > 2100) {
+    return sendError(res, 400, ErrorCode.VALIDATION_ERROR, "Invalid year", req.requestId);
+  }
+  const csv = await exportTransactionsCsv(req.dbUserId!, year);
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="cortinho-tax-report-${year}.csv"`);
+  res.send(csv);
 }));
 
 // GET /v1/transactions/:id

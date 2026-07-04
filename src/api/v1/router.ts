@@ -10,6 +10,7 @@ import scanRouter         from "./scan.js";
 import importRouter       from "./import.js";
 import uploadRouter       from "./upload.js";
 import pricesRouter       from "./prices.js";
+import ebayRouter         from "./ebay.js";
 
 const v1 = Router();
 
@@ -31,5 +32,6 @@ v1.use("/scan",         scanRouter);
 v1.use("/import",       importRouter);
 v1.use("/upload",       uploadRouter);
 v1.use("/prices",       pricesRouter);
+v1.use("/ebay",         ebayRouter);
 
 export default v1;

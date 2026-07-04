@@ -47,10 +47,15 @@ export const users = pgTable(
     email:     varchar("email", { length: 256 }).notNull().unique(),
     firstName: varchar("first_name", { length: 128 }),
     lastName:  varchar("last_name",  { length: 128 }),
-    role:      varchar("role", { length: 16 }).notNull().default("user"),
-    currency:  char("currency", { length: 3 }).notNull().default("USD"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    role:          varchar("role", { length: 16 }).notNull().default("user"),
+    currency:      char("currency", { length: 3 }).notNull().default("USD"),
+    username:      varchar("username", { length: 40 }).unique(),
+    profilePublic: boolean("profile_public").notNull().default(false),
+    showValues:    boolean("show_values").notNull().default(true),
+    bio:           text("bio"),
+    avatarUrl:     varchar("avatar_url", { length: 500 }),
+    createdAt:     timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt:     timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
     clerkIdIdx: uniqueIndex("uq_users_clerk_id").on(t.clerkId),
@@ -98,6 +103,7 @@ export const cards = pgTable(
 
     // ── Status / Meta ──────────────────────────────────────────
     notes:     text("notes"),
+    isPublic:  boolean("is_public").notNull().default(false),
     status:    varchar("status", { length: 16 }).notNull().default("collection"),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

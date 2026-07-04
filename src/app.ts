@@ -7,6 +7,7 @@ import { globalErrorHandler }     from "./middleware/errorHandler.js";
 import { logger }                 from "./logger/index.js";
 import pinoHttp                   from "pino-http";
 import v1Router                   from "./api/v1/router.js";
+import publicProfilesRouter        from "./api/public/profiles.js";
 import { clerkWebhookHandler }    from "./webhooks/clerk.js";
 
 export function createApp() {
@@ -48,6 +49,9 @@ export function createApp() {
   app.get("/health", (_req, res) => {
     res.json({ ok: true, uptime: process.uptime(), ts: new Date().toISOString() });
   });
+
+  // ── Public (no auth) ─────────────────────────────────────
+  app.use("/api/public/u", publicProfilesRouter);
 
   // ── Versioned API ─────────────────────────────────────────
   app.use("/api/v1", v1Router);

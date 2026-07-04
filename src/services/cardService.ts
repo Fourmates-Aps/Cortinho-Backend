@@ -33,6 +33,7 @@ export const createCardSchema = z.object({
   imageUrl:          z.string().url().optional(),
   imageBackUrl:      z.string().url().optional(),
   notes:             z.string().optional(),
+  isPublic:          z.boolean().default(false),
   status:            z.enum(["collection","wishlist","for_sale","sold","traded","draft"]).default("collection"),
 });
 
