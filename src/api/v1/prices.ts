@@ -18,7 +18,6 @@ const querySchema = z.object({
   category:     z.string().optional(),
 });
 
-// GET /v1/prices/lookup?name=Michael+Jordan&year=1986&set=Fleer&cardNumber=57&gradeCompany=PSA&gradeValue=9&category=basketball
 router.get(
   "/lookup",
   asyncHandler(async (req, res) => {
