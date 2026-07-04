@@ -5,7 +5,7 @@ import { sendSuccess, sendError } from "../../utils/response.js";
 import { ErrorCode } from "../../types/api.js";
 import {
   listCards, getCard, createCard, updateCard, softDeleteCard,
-  getPriceHistory, logPrice,
+  getPriceHistory, logPrice, bulkCreateCards,
   createCardSchema, updateCardSchema, listCardsSchema,
 } from "../../services/cardService.js";
 import { z } from "zod";
@@ -112,6 +112,20 @@ router.post(
     );
     if (!entry) return sendError(res, 404, ErrorCode.NOT_FOUND, "Card not found", req.requestId);
     sendSuccess(res, entry, 201, req.requestId);
+  })
+);
+
+// POST /v1/cards/import — bulk CSV import (JSON rows, already parsed client-side)
+const importSchema = z.object({
+  rows: z.array(z.record(z.unknown())).min(1).max(1000),
+});
+
+router.post(
+  "/import",
+  validate(importSchema),
+  asyncHandler(async (req, res) => {
+    const result = await bulkCreateCards(req.dbUserId!, req.body.rows);
+    sendSuccess(res, result, 200, req.requestId);
   })
 );
 

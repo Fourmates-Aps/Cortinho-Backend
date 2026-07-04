@@ -123,6 +123,55 @@ export async function createCard(userId: number, input: CreateCardInput) {
   return card;
 }
 
+const GRADE_NAME_TO_ID: Record<string, number> = { PSA: 1, BGS: 2, CGC: 3, SGC: 4 };
+
+export interface BulkImportResult {
+  imported: number;
+  failed:   number;
+  errors:   Array<{ index: number; name?: string; message: string }>;
+}
+
+export async function bulkCreateCards(userId: number, rows: any[]): Promise<BulkImportResult> {
+  const validRows: NewCard[]  = [];
+  const priceRows: { idx: number; value: string }[] = [];
+  const errors: BulkImportResult["errors"] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const raw = { ...rows[i] };
+
+    // Resolve gradeCompanyId from name string
+    if (raw.gradeCompany && !raw.gradeCompanyId) {
+      raw.gradeCompanyId = GRADE_NAME_TO_ID[String(raw.gradeCompany).toUpperCase()] ?? undefined;
+    }
+    delete raw.gradeCompany;
+
+    const parsed = createCardSchema.safeParse(raw);
+    if (!parsed.success) {
+      errors.push({ index: i, name: raw.name, message: parsed.error.errors[0]?.message ?? "Invalid row" });
+      continue;
+    }
+    validRows.push({ ...parsed.data, userId } as unknown as NewCard);
+    if (parsed.data.currentValue !== undefined) {
+      priceRows.push({ idx: validRows.length - 1, value: String(parsed.data.currentValue) });
+    }
+  }
+
+  if (validRows.length > 0) {
+    const inserted = await db.insert(cards).values(validRows as any[]).returning({ id: cards.id });
+    const priceInserts = priceRows.map((pr) => ({
+      cardId: inserted[pr.idx].id,
+      value:  pr.value,
+      source: "import" as const,
+    }));
+    if (priceInserts.length > 0) {
+      await db.insert(priceHistory).values(priceInserts);
+    }
+    await cache.del(CacheKey.userCards(userId));
+  }
+
+  return { imported: validRows.length, failed: errors.length, errors };
+}
+
 export async function updateCard(userId: number, cardId: number, input: UpdateCardInput) {
   const existing = await getCard(userId, cardId);
   if (!existing) return null;
