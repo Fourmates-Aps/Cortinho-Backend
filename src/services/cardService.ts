@@ -24,7 +24,7 @@ export const createCardSchema = z.object({
   gradeCompanyId:    z.number().int().optional(),
   gradeValue:        z.number().min(1).max(10).optional(),
   certNumber:        z.string().max(64).optional(),
-  condition:         z.enum(["poor","fair","good","very_good","excellent","near_mint","mint","gem_mint"]).optional(),
+  condition:         z.enum(["raw","poor","fair","good","very_good","excellent","near_mint","mint","gem_mint"]).optional(),
   purchasePrice:     z.number().min(0).optional(),
   currentValue:      z.number().min(0).optional(),
   purchaseDate:      z.string().optional(),       // YYYY-MM-DD
