@@ -147,7 +147,7 @@ export async function bulkCreateCards(userId: number, rows: any[]): Promise<Bulk
 
     const parsed = createCardSchema.safeParse(raw);
     if (!parsed.success) {
-      errors.push({ index: i, name: raw.name, message: parsed.error.errors[0]?.message ?? "Invalid row" });
+      errors.push({ index: i, name: raw.name, message: parsed.error.issues[0]?.message ?? "Invalid row" });
       continue;
     }
     validRows.push({ ...parsed.data, userId } as unknown as NewCard);

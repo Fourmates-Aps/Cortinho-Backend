@@ -117,7 +117,7 @@ router.post(
 
 // POST /v1/cards/import — bulk CSV import (JSON rows, already parsed client-side)
 const importSchema = z.object({
-  rows: z.array(z.record(z.unknown())).min(1).max(1000),
+  rows: z.array(z.record(z.string(), z.unknown())).nonempty().refine((a) => a.length <= 1000, "Max 1000 rows per import"),
 });
 
 router.post(
