@@ -56,20 +56,22 @@ export interface PriceLookupResult {
   listings: Array<{ title: string; price: number; url: string }>;
 }
 
-export async function searchCardPrices(
+export interface PriceSearchParams {
+  name: string;
+  year?: string;
+  setName?: string;
+  cardNumber?: string;
+  gradeCompany?: string;
+  gradeValue?: string;
+  category?: string;
+}
+
+async function fetchEbay(
+  token: string,
   query: string,
-  category?: string
-): Promise<PriceLookupResult> {
-  const token = await getEbayToken();
-
-  const categoryId = category ? (CATEGORY_IDS[category.toLowerCase()] ?? "212") : "212";
-
-  const params = new URLSearchParams({
-    q: query,
-    category_ids: categoryId,
-    limit: "20",
-  });
-
+  categoryId: string
+): Promise<any[]> {
+  const params = new URLSearchParams({ q: query, category_ids: categoryId, limit: "20" });
   const res = await fetch(`${EBAY_BROWSE_URL}?${params}`, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -77,16 +79,46 @@ export async function searchCardPrices(
       "Content-Type": "application/json",
     },
   });
-
   const data = (await res.json()) as any;
-  if (!res.ok) {
-    const errMsg = data.errors?.[0]?.message ?? res.statusText;
-    throw new Error(`eBay search failed: ${errMsg}`);
+  if (!res.ok) throw new Error(`eBay search failed: ${data.errors?.[0]?.message ?? res.statusText}`);
+  return data.itemSummaries ?? [];
+}
+
+export async function searchCardPrices(
+  query: string,
+  category?: string
+): Promise<PriceLookupResult> {
+  const token = await getEbayToken();
+  const categoryId = category ? (CATEGORY_IDS[category.toLowerCase()] ?? "212") : "212";
+
+  // Parse the query back into parts for fallback strategy.
+  // The query is built as: name year set cardNumber gradeCompany gradeValue
+  // We try progressively looser queries until we get results.
+  const parts = query.trim().split(/\s+/);
+
+  // Build fallback tiers by dropping from the end one term at a time,
+  // but always keep at minimum 2 terms (the name).
+  let items: any[] = [];
+  let usedQuery = query;
+
+  for (let end = parts.length; end >= 2; end--) {
+    const attempt = parts.slice(0, end).join(" ");
+    logger.debug({ attempt, categoryId }, "eBay query attempt");
+    items = await fetchEbay(token, attempt, categoryId);
+    if (items.length > 0) {
+      usedQuery = attempt;
+      break;
+    }
   }
 
-  const items: any[] = data.itemSummaries ?? [];
+  if (items.length > 0) {
+    logger.info({ usedQuery, results: items.length }, "eBay search success");
+  } else {
+    logger.warn({ query }, "eBay returned no results for any fallback");
+  }
+
   const validListings = items
-    .map((item) => ({
+    .map((item: any) => ({
       title: item.title as string,
       price: parseFloat(item.price?.value ?? "0"),
       url: item.itemWebUrl as string,
