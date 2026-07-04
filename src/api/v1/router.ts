@@ -9,6 +9,7 @@ import sealedRouter       from "./sealed.js";
 import scanRouter         from "./scan.js";
 import importRouter       from "./import.js";
 import uploadRouter       from "./upload.js";
+import pricesRouter       from "./prices.js";
 
 const v1 = Router();
 
@@ -29,5 +30,6 @@ v1.use("/sealed",       sealedRouter);
 v1.use("/scan",         scanRouter);
 v1.use("/import",       importRouter);
 v1.use("/upload",       uploadRouter);
+v1.use("/prices",       pricesRouter);
 
 export default v1;

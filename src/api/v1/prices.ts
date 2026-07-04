@@ -1,0 +1,53 @@
+import { Router } from "express";
+import { z } from "zod";
+import { asyncHandler } from "../../middleware/errorHandler.js";
+import { sendSuccess, sendError } from "../../utils/response.js";
+import { ErrorCode } from "../../types/api.js";
+import { searchCardPrices } from "../../services/ebayService.js";
+import { logger } from "../../logger/index.js";
+
+const router = Router();
+
+const querySchema = z.object({
+  name:         z.string().min(2).max(100),
+  year:         z.string().optional(),
+  set:          z.string().optional(),
+  cardNumber:   z.string().optional(),
+  gradeCompany: z.string().optional(),
+  gradeValue:   z.string().optional(),
+  category:     z.string().optional(),
+});
+
+// GET /v1/prices/lookup?name=Michael+Jordan&year=1986&set=Fleer&cardNumber=57&gradeCompany=PSA&gradeValue=9&category=basketball
+router.get(
+  "/lookup",
+  asyncHandler(async (req, res) => {
+    const parsed = querySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return sendError(res, 400, ErrorCode.BAD_REQUEST, "name param required (min 2 chars)", req.requestId);
+    }
+
+    if (!process.env.EBAY_CLIENT_ID || !process.env.EBAY_CLIENT_SECRET) {
+      return sendError(res, 503, ErrorCode.INTERNAL, "Price lookup not configured on this server", req.requestId);
+    }
+
+    const { name, year, set, cardNumber, gradeCompany, gradeValue, category } = parsed.data;
+
+    // Build the most precise query from all available fields
+    const queryParts = [name, year, set, cardNumber, gradeCompany, gradeValue].filter(Boolean);
+    const query = queryParts.join(" ");
+
+    logger.info({ query, category }, "eBay price lookup");
+
+    try {
+      const result = await searchCardPrices(query, category);
+      sendSuccess(res, result, 200, req.requestId);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Price lookup failed";
+      logger.error({ err }, "eBay price lookup failed");
+      sendError(res, 502, ErrorCode.INTERNAL, msg, req.requestId);
+    }
+  })
+);
+
+export default router;
