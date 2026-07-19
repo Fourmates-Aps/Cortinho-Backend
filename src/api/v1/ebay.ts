@@ -4,6 +4,7 @@ import { asyncHandler } from "../../middleware/errorHandler.js";
 import { sendSuccess, sendError } from "../../utils/response.js";
 import { ErrorCode } from "../../types/api.js";
 import { parseEbayListing } from "../../services/ebayService.js";
+import { logger } from "../../logger/index.js";
 
 const router = Router();
 
@@ -21,7 +22,9 @@ router.post(
       return sendError(res, 400, ErrorCode.VALIDATION_ERROR, "Valid eBay URL required", req.requestId);
     }
 
-    if (!process.env.EBAY_CLIENT_ID || !process.env.EBAY_CLIENT_SECRET) {
+    const hasCredentials = process.env.EBAY_API_TOKEN ||
+      (process.env.EBAY_CLIENT_ID && process.env.EBAY_CLIENT_SECRET);
+    if (!hasCredentials) {
       return sendError(res, 503, ErrorCode.INTERNAL, "eBay integration not configured", req.requestId);
     }
 
@@ -30,6 +33,7 @@ router.post(
       sendSuccess(res, result, 200, req.requestId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to parse listing";
+      logger.error({ err, url: parsed.data.url }, "eBay parse-listing failed");
       sendError(res, 502, ErrorCode.INTERNAL, msg, req.requestId);
     }
   })

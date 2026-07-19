@@ -1,8 +1,11 @@
 import { logger } from "../logger/index.js";
 
-const EBAY_OAUTH_URL  = "https://api.ebay.com/identity/v1/oauth2/token";
-const EBAY_BROWSE_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search";
-const EBAY_ITEM_URL   = "https://api.ebay.com/buy/browse/v1/item";
+const SANDBOX = process.env.EBAY_SANDBOX === "true";
+const EBAY_BASE          = SANDBOX ? "https://api.sandbox.ebay.com" : "https://api.ebay.com";
+const EBAY_OAUTH_URL     = `${EBAY_BASE}/identity/v1/oauth2/token`;
+const EBAY_INSIGHTS_URL  = `${EBAY_BASE}/buy/marketplace_insights/v1_beta/item_sales/search`;
+const EBAY_BROWSE_URL    = `${EBAY_BASE}/buy/browse/v1/item_summary/search`;
+const EBAY_ITEM_URL      = `${EBAY_BASE}/buy/browse/v1/item`;
 
 // Category IDs for trading cards on eBay
 const CATEGORY_IDS: Record<string, string> = {
@@ -17,13 +20,16 @@ const CATEGORY_IDS: Record<string, string> = {
 let cachedToken: { token: string; expiresAt: number } | null = null;
 
 async function getEbayToken(): Promise<string> {
+  // Use pre-generated token if provided directly
+  if (process.env.EBAY_API_TOKEN) return process.env.EBAY_API_TOKEN;
+
   if (cachedToken && Date.now() < cachedToken.expiresAt - 60_000) {
     return cachedToken.token;
   }
 
   const clientId = process.env.EBAY_CLIENT_ID;
   const clientSecret = process.env.EBAY_CLIENT_SECRET;
-  if (!clientId || !clientSecret) throw new Error("eBay credentials not configured");
+  if (!clientId || !clientSecret) throw new Error("eBay credentials not configured (set EBAY_API_TOKEN or EBAY_CLIENT_ID+EBAY_CLIENT_SECRET)");
 
   const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
 
@@ -67,21 +73,33 @@ export interface PriceSearchParams {
   category?: string;
 }
 
-async function fetchEbay(
-  token: string,
-  query: string,
-  categoryId: string
-): Promise<any[]> {
-  const params = new URLSearchParams({ q: query, category_ids: categoryId, limit: "20" });
-  const res = await fetch(`${EBAY_BROWSE_URL}?${params}`, {
+async function ebayGet(token: string, url: string): Promise<{ ok: boolean; status: number; data: any }> {
+  const res = await fetch(url, {
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization:             `Bearer ${token}`,
       "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
-      "Content-Type": "application/json",
+      "Content-Type":            "application/json",
     },
+    signal: AbortSignal.timeout(4000),
   });
-  const data = (await res.json()) as any;
-  if (!res.ok) throw new Error(`eBay search failed: ${data.errors?.[0]?.message ?? res.statusText}`);
+  const text = await res.text();
+  let data: any = {};
+  try { data = JSON.parse(text); } catch { data = { _raw: text.slice(0, 200) }; }
+  return { ok: res.ok, status: res.status, data };
+}
+
+async function fetchMarketplaceInsights(token: string, query: string, categoryId: string): Promise<any[] | null> {
+  const params = new URLSearchParams({ q: query, category_ids: categoryId, limit: "20" });
+  const { ok, status, data } = await ebayGet(token, `${EBAY_INSIGHTS_URL}?${params}`);
+  if (status === 401 || status === 403 || status === 404) return null; // scope/sandbox not available — caller will fall back
+  if (!ok) throw new Error(`eBay Insights HTTP ${status}: ${JSON.stringify(data).slice(0, 200)}`);
+  return data.itemSales ?? [];
+}
+
+async function fetchBrowse(token: string, query: string, categoryId: string): Promise<any[]> {
+  const params = new URLSearchParams({ q: query, category_ids: categoryId, limit: "20" });
+  const { ok, status, data } = await ebayGet(token, `${EBAY_BROWSE_URL}?${params}`);
+  if (!ok) throw new Error(`eBay Browse HTTP ${status}: ${JSON.stringify(data).slice(0, 200)}`);
   return data.itemSummaries ?? [];
 }
 
@@ -91,40 +109,73 @@ export async function searchCardPrices(
 ): Promise<PriceLookupResult> {
   const token = await getEbayToken();
   const categoryId = category ? (CATEGORY_IDS[category.toLowerCase()] ?? "212") : "212";
-
-  // Parse the query back into parts for fallback strategy.
-  // The query is built as: name year set cardNumber gradeCompany gradeValue
-  // We try progressively looser queries until we get results.
   const parts = query.trim().split(/\s+/);
 
-  // Build fallback tiers by dropping from the end one term at a time,
-  // but always keep at minimum 2 terms (the name).
   let items: any[] = [];
   let usedQuery = query;
+  let usedInsights = false;
 
-  for (let end = parts.length; end >= 2; end--) {
-    const attempt = parts.slice(0, end).join(" ");
-    logger.debug({ attempt, categoryId }, "eBay query attempt");
-    items = await fetchEbay(token, attempt, categoryId);
-    if (items.length > 0) {
-      usedQuery = attempt;
-      break;
+  // Try Marketplace Insights (sold listings) first; null = not available for this token/env
+  const insightsAvailable = !SANDBOX; // sandbox rarely has Insights data
+  if (insightsAvailable) {
+    for (let end = parts.length; end >= 2; end--) {
+      const attempt = parts.slice(0, end).join(" ");
+      logger.debug({ attempt, categoryId }, "eBay insights query attempt");
+      const result = await fetchMarketplaceInsights(token, attempt, categoryId);
+      if (result === null) {
+        logger.warn("eBay Insights unavailable (401/403/404) — falling back to Browse API");
+        break;
+      }
+      if (result.length > 0) {
+        items = result;
+        usedQuery = attempt;
+        usedInsights = true;
+        break;
+      }
+    }
+  }
+
+  // Fall back to Browse API (active listings) — max 4 attempts to keep latency under ~6s
+  if (items.length === 0) {
+    const MAX_ATTEMPTS = 4;
+    const step = Math.max(1, Math.floor(parts.length / MAX_ATTEMPTS));
+    const ends = Array.from({ length: MAX_ATTEMPTS }, (_, i) => Math.max(2, parts.length - i * step))
+      .filter((v, i, a) => a.indexOf(v) === i)
+      .sort((a, b) => b - a);
+
+    for (const end of ends) {
+      const attempt = parts.slice(0, end).join(" ");
+      logger.debug({ attempt, categoryId }, "eBay browse query attempt");
+      const result = await fetchBrowse(token, attempt, categoryId);
+      if (result.length > 0) {
+        items = result;
+        usedQuery = attempt;
+        break;
+      }
     }
   }
 
   if (items.length > 0) {
-    logger.info({ usedQuery, results: items.length }, "eBay search success");
+    logger.info({ usedQuery, results: items.length, source: usedInsights ? "insights" : "browse" }, "eBay search success");
   } else {
-    logger.warn({ query }, "eBay returned no results for any fallback");
+    logger.warn({ query }, "eBay: no results for any fallback");
   }
 
-  const validListings = items
-    .map((item: any) => ({
-      title: item.title as string,
-      price: parseFloat(item.price?.value ?? "0"),
-      url: item.itemWebUrl as string,
-    }))
-    .filter((l) => l.price > 0);
+  const validListings = usedInsights
+    ? items
+        .map((item: any) => ({
+          title: item.title as string,
+          price: parseFloat(item.lastSoldPrice?.value ?? "0"),
+          url:   item.itemWebUrl as string,
+        }))
+        .filter((l) => l.price > 0)
+    : items
+        .map((item: any) => ({
+          title: item.title as string,
+          price: parseFloat(item.price?.value ?? "0"),
+          url:   item.itemWebUrl as string,
+        }))
+        .filter((l) => l.price > 0);
 
   if (validListings.length === 0) {
     return { avgPrice: 0, minPrice: 0, maxPrice: 0, sampleSize: 0, currency: "USD", listings: [] };
@@ -132,14 +183,17 @@ export async function searchCardPrices(
 
   const prices = validListings.map((l) => l.price);
   const avg = prices.reduce((a, b) => a + b, 0) / prices.length;
+  const currency = usedInsights
+    ? (items[0]?.lastSoldPrice?.currency ?? "USD")
+    : (items[0]?.price?.currency ?? "USD");
 
   return {
-    avgPrice: Math.round(avg * 100) / 100,
-    minPrice: Math.min(...prices),
-    maxPrice: Math.max(...prices),
+    avgPrice:   Math.round(avg * 100) / 100,
+    minPrice:   Math.min(...prices),
+    maxPrice:   Math.max(...prices),
     sampleSize: prices.length,
-    currency: items[0]?.price?.currency ?? "USD",
-    listings: validListings.slice(0, 5),
+    currency,
+    listings:   validListings.slice(0, 5),
   };
 }
 
@@ -190,9 +244,96 @@ function stripGradeAndNoise(title: string): string {
     .trim();
 }
 
+// ── /b/ Browse product page parser ───────────────────────────
+
+function extractBrowseSlug(url: string): { slug: string; categoryId: string } | null {
+  // https://www.ebay.com/b/{slug}/{categoryId}/bn_{id}
+  const m = url.match(/\/b\/([^/]+)\/(\d+)/);
+  return m ? { slug: m[1], categoryId: m[2] } : null;
+}
+
+function parseBrowseSlug(slug: string): { name: string; year: string | null; cardNumber: string | null } {
+  const text = slug.replace(/-/g, " ").trim();
+
+  // Year at start: "2023-24" or "2023"
+  const yearMatch = slug.match(/^(\d{4}(?:-\d{2,4})?)-/);
+  const year = yearMatch ? yearMatch[1] : null;
+
+  // Card number at end: last standalone digits segment e.g. "-64" "-211"
+  const numMatch = slug.match(/-(\d{1,4})(?:-[a-zA-Z].*)?$/);
+  const cardNumber = numMatch ? numMatch[1] : null;
+
+  return { name: text, year, cardNumber };
+}
+
+async function parseBrowseProductUrl(url: string): Promise<ListingImport> {
+  const browse = extractBrowseSlug(url);
+  if (!browse) throw new Error("Could not parse eBay browse URL");
+
+  const { slug, categoryId } = browse;
+  const { name, year } = parseBrowseSlug(slug);
+
+  const token = await getEbayToken();
+
+  // Search Browse API for listings matching this product
+  const params = new URLSearchParams({
+    q:            name,
+    category_ids: categoryId,
+    limit:        "5",
+  });
+
+  const { ok, status, data } = await ebayGet(token, `${EBAY_BROWSE_URL}?${params}`);
+  if (!ok) throw new Error(`eBay browse search failed: ${status}`);
+
+  const items: any[] = data.itemSummaries ?? [];
+  const first = items[0];
+
+  const title       = first?.title ?? name;
+  const price       = first?.price?.value ? parseFloat(first.price.value) : null;
+  const imageUrl    = first?.image?.imageUrl ?? null;
+  const listingUrl  = first?.itemWebUrl ?? url;
+  const itemId      = first?.itemId ?? "";
+
+  const { gradeCompany, gradeValue } = inferGrade(title);
+  const category = inferCategory(title) ?? inferCategoryFromId(categoryId);
+  const cleanName = stripGradeAndNoise(title);
+
+  const currentYear = new Date().getFullYear();
+  const yearFromTitle = title.match(/\b(19[5-9]\d|20[0-2]\d)\b/)?.[1];
+  const resolvedYear = yearFromTitle ? parseInt(yearFromTitle) : (year ? parseInt(year) : null);
+
+  logger.info({ slug, title, price, items: items.length }, "eBay browse product parsed");
+
+  return {
+    title,
+    name:         cleanName || name,
+    year:         resolvedYear,
+    price,
+    currency:     first?.price?.currency ?? "USD",
+    imageUrl,
+    imageBackUrl: null,
+    itemId,
+    listingUrl,
+    gradeCompany,
+    gradeValue,
+    category,
+  };
+}
+
+function inferCategoryFromId(categoryId: string): string | null {
+  const map: Record<string, string> = {
+    "214": "basketball", "213": "football", "212": "baseball",
+    "261328": "soccer", "183454": "pokemon",
+  };
+  return map[categoryId] ?? null;
+}
+
 export async function parseEbayListing(url: string): Promise<ListingImport> {
+  // Route /b/ product page URLs to the browse parser
+  if (/\/b\//.test(url)) return parseBrowseProductUrl(url);
+
   const itemId = extractItemId(url);
-  if (!itemId) throw new Error("Could not extract eBay item ID from URL");
+  if (!itemId) throw new Error("Paste a specific eBay listing URL (/itm/) or product page URL (/b/)");
 
   const token = await getEbayToken();
 

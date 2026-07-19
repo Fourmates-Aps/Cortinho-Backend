@@ -50,6 +50,7 @@ router.get(
         isGraded:      cards.isGraded,
         gradeValue:    cards.gradeValue,
         gradeCompany:  gradingCompanies.abbr,
+        certNumber:    cards.certNumber,
         currentValue:  cards.currentValue,
         imageUrl:      cards.imageUrl,
         imageBackUrl:  cards.imageBackUrl,
@@ -84,6 +85,7 @@ router.get(
         showValues:  user.showValues,
         avatarUrl:   user.avatarUrl ?? null,
         memberSince: user.createdAt,
+        isFounder:   user.id <= 100,
       },
       stats: {
         cardCount:  cardsOut.length,

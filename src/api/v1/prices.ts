@@ -26,7 +26,9 @@ router.get(
       return sendError(res, 400, ErrorCode.BAD_REQUEST, "name param required (min 2 chars)", req.requestId);
     }
 
-    if (!process.env.EBAY_CLIENT_ID || !process.env.EBAY_CLIENT_SECRET) {
+    const hasCredentials = process.env.EBAY_API_TOKEN ||
+      (process.env.EBAY_CLIENT_ID && process.env.EBAY_CLIENT_SECRET);
+    if (!hasCredentials) {
       return sendError(res, 503, ErrorCode.INTERNAL, "Price lookup not configured on this server", req.requestId);
     }
 
